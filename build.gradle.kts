@@ -46,6 +46,7 @@ sonar {
 
 val nvplibVersion: String? by extra {
     providers.exec {
+        workingDir(rootDir)
         commandLine("git", "describe", "--tags", "--match", "nvplib-*")
     }.standardOutput.asText.get().trim().removePrefix("nvplib-")
 }
