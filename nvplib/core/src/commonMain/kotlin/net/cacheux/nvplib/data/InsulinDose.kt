@@ -5,6 +5,7 @@ import net.cacheux.bytonio.BinarySerializable
 import net.cacheux.bytonio.annotations.DataObject
 import net.cacheux.bytonio.annotations.Deserializer
 import net.cacheux.bytonio.annotations.EncodeAsInt
+import net.cacheux.bytonio.annotations.IgnoreEncoding
 import net.cacheux.bytonio.utils.ByteArrayReader
 import net.cacheux.bytonio.utils.reader
 import net.cacheux.nvplib.generated.InsulinDoseSerializer
@@ -17,7 +18,8 @@ import kotlin.time.ExperimentalTime
 data class InsulinDose(
     @EncodeAsInt val time: Long,
     @EncodeAsInt val units: Int,
-    @EncodeAsInt val flags: Int
+    @EncodeAsInt val flags: Int,
+    @IgnoreEncoding val rawTime: Long = -1
 ): BinarySerializable {
     companion object {
         const val VALID_FLAG = 0x08000000
@@ -31,7 +33,8 @@ data class InsulinDose(
      */
     fun withUtcTime(relativeTime: Int, currentTime: Long = Clock.System.now().toEpochMilliseconds()) = InsulinDose(
         time = (currentTime - ( (relativeTime - time) * 1000 )),
-        units = units, flags = flags
+        units = units, flags = flags,
+        rawTime = time
     )
 
     override fun getBinarySize() = InsulinDoseSerializer.getBinarySize(this)
