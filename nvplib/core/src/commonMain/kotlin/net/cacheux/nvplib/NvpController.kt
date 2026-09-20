@@ -39,6 +39,13 @@ class NvpController(
         val NDEF_SELECT = byteArrayOf(0xE1.toByte(), 0x04)
 
         const val COMMAND_COMPLETED = 0x9000.toShort()
+
+        /**
+         * How many "not ready" answers to sit through before giving up on a log segment.
+         * Generous on purpose: each attempt is one cheap NFC exchange, while giving up too early
+         * means a failed read the user has to repeat by hand.
+         */
+        const val MAX_NOT_READY_ANSWERS = 25
     }
 
     private val phdManager = PhdManager(dataReader)
@@ -122,6 +129,36 @@ class NvpController(
         return PenResult.Failure("Unknown error")
     }
 
+    /**
+     * Keeps asking while the pen answers with an empty packet, which is how it says "not ready
+     * yet, ask again". That answer is the normal case rather than an anomaly — the recorded
+     * session used by the tests contains one — but a pen holding a full log sometimes needs
+     * several attempts before the data is there.
+     *
+     * Asking exactly once more, as this used to do, left no margin at all: the second empty
+     * answer went straight to the deserializer, which read past the end of an empty array and
+     * raised a message about bytes rather than about a pen that needed a moment. Each attempt is
+     * a full NFC exchange and so carries its own delay of roughly fifteen milliseconds; no
+     * artificial wait is needed, and [MAX_NOT_READY_ANSWERS] bounds the total.
+     *
+     * Gives up by throwing rather than by returning the doses collected so far: a log of insulin
+     * doses that silently stops short looks exactly like a complete one.
+     */
+    private fun awaitSegmentData(first: ByteArray): ByteArray {
+        var result = first
+        var attempts = 0
+
+        while (result.isEmpty()) {
+            check(attempts < MAX_NOT_READY_ANSWERS) {
+                "Pen did not return segment data after $attempts attempts"
+            }
+            attempts++
+            result = phdManager.sendEmptyRequest()
+        }
+
+        return result
+    }
+
     private fun readSegment(
         segment: SegmentInfo, invokeId: Int, doseList: MutableList<InsulinDose>,
         stopCondition: (List<InsulinDose>) -> Boolean = { _ -> false}
@@ -139,9 +176,7 @@ class NvpController(
         var finished = false
 
         do {
-            if (result.isEmpty()) {
-                result = phdManager.sendEmptyRequest()
-            }
+            result = awaitSegmentData(result)
 
             val logApdu = ApduDeserializer.fromByteArray(result)
             logApdu.eventReport()?.let { eventReport ->
